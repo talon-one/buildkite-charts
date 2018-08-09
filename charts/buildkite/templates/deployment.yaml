@@ -18,6 +18,19 @@ spec:
     spec:
       serviceAccount: {{ template "fullname" . }}
       containers:
+        - name: "{{ .Chart.Name }}-dind"
+          image: docker:dind
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            # Allows host volume mounts from buildkite-agent → docker-dind
+            - mountPath: /buildkite/builds
+              name: buildkite-builds
+            {{- if .Values.registryCreds.gcrServiceAccountKey }}
+            - name: service-key
+              mountPath: /etc/service_key
+            {{- end }}
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag  }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -30,6 +43,8 @@ spec:
                 secretKeyRef:
                   name: {{ template "fullname" . }}
                   key: agent-token
+            - name: DOCKER_HOST
+              value: tcp://localhost:2375
             - name: BUILDKITE_AGENT_META_DATA
               value: "{{ .Values.agent.meta }}"
             {{- if .Values.privateSshKey }}
@@ -45,8 +60,13 @@ spec:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
 {{- if .Values.volumeMounts }}{{ toYaml .Values.volumeMounts | nindent 12 }}{{- end }}
-            - name: var-run-docker-sock
-              mountPath: /var/run/docker.sock
+            # - name: var-run-docker-sock
+            #   mountPath: /var/run/docker.sock
+            # Allows host volume mounts from buildkite-agent → docker-dind
+            - name: buildkite-builds
+              mountPath: /buildkite/builds
+            - name: buildkite-hooks
+              mountPath: /buildkite/hooks
             {{- if .Values.registryCreds.gcrServiceAccountKey }}
             - name: service-key
               mountPath: /etc/service_key
@@ -57,9 +77,14 @@ spec:
             {{- end }}
       volumes:
 {{- if .Values.volumes }}{{ toYaml .Values.volumes | nindent 8 }}{{- end }}
-        - name: var-run-docker-sock
-          hostPath:
-            path: /var/run/docker.sock
+        # - name: var-run-docker-sock
+        #   hostPath:
+        #     path: /var/run/docker.sock
+        - name: buildkite-builds
+          emptyDir: {}
+        - name: buildkite-hooks
+          configMap:
+            name: {{ template "fullname" . }}-hooks
         {{- if .Values.registryCreds.gcrServiceAccountKey }}
         - name: service-key
           secret:
